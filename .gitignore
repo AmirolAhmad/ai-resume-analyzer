@@ -1,3 +1,3 @@
-.env
 venv
 gspread_creds.json
+.streamlit/secrets.toml

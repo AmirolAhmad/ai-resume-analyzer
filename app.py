@@ -18,12 +18,26 @@ from oauth2client.service_account import ServiceAccountCredentials
 
 # --- Load .env key ---
 load_dotenv()
-openai.api_key = os.getenv("OPENAI_API_KEY")
+openai.api_key = st.secrets["OPENAI_API_KEY"]
 client = openai.OpenAI()
 
 # --- Google Sheets Auth ---
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-creds = ServiceAccountCredentials.from_json_keyfile_name("gspread_creds.json", scope)
+# creds = ServiceAccountCredentials.from_json_keyfile_name("gspread_creds.json", scope)
+# Streamlit Cloud secrets
+gspread_creds = {
+    "type": "service_account",
+    "project_id": st.secrets["GSHEETS"]["PROJECT_ID"],
+    "private_key_id": st.secrets["GSHEETS"]["PRIVATE_KEY_ID"],
+    "private_key": st.secrets["GSHEETS"]["PRIVATE_KEY"].replace("\\n", "\n"),
+    "client_email": st.secrets["GSHEETS"]["CLIENT_EMAIL"],
+    "client_id": st.secrets["GSHEETS"]["CLIENT_ID"],
+    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+    "token_uri": "https://oauth2.googleapis.com/token",
+    "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+    "client_x509_cert_url": st.secrets["GSHEETS"]["CLIENT_X509_CERT_URL"]
+}
+creds = ServiceAccountCredentials.from_json_keyfile_dict(gspread_creds, scope)
 client_gsheet = gspread.authorize(creds)
 sheet = client_gsheet.open("ResumeAI_Feedback").sheet1
 
@@ -36,14 +50,14 @@ def get_client_ip():
 def email_resume_file(file_bytes, filename):
     msg = EmailMessage()
     msg["Subject"] = "New Resume Uploaded"
-    msg["From"] = os.getenv("EMAIL_SENDER")
-    msg["To"] = os.getenv("EMAIL_RECEIVER")
+    msg["From"] = st.secrets["EMAIL_SENDER"]
+    msg["To"] = st.secrets["EMAIL_RECEIVER"]
     msg.set_content("A new resume has been uploaded.")
 
     msg.add_attachment(file_bytes, maintype="application", subtype="octet-stream", filename=filename)
 
     with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
-        smtp.login(os.getenv("EMAIL_SENDER"), os.getenv("EMAIL_PASSWORD"))
+        smtp.login(st.secrets["EMAIL_SENDER"], st.secrets["EMAIL_PASSWORD"])
         smtp.send_message(msg)
 
 def extract_text_from_pdf(uploaded_file):
