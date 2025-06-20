@@ -12,20 +12,18 @@ import re
 import smtplib
 from email.message import EmailMessage
 
-def email_resume_file(file, filename):
+def email_resume_file(file_bytes, filename):
     msg = EmailMessage()
     msg["Subject"] = "New Resume Uploaded"
     msg["From"] = os.getenv("EMAIL_SENDER")
     msg["To"] = os.getenv("EMAIL_RECEIVER")
     msg.set_content("A new resume has been uploaded.")
 
-    file_bytes = file.read()
     msg.add_attachment(file_bytes, maintype="application", subtype="octet-stream", filename=filename)
 
     with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
         smtp.login(os.getenv("EMAIL_SENDER"), os.getenv("EMAIL_PASSWORD"))
         smtp.send_message(msg)
-
 
 # --- Load .env key ---
 load_dotenv()
@@ -33,9 +31,13 @@ openai.api_key = os.getenv("OPENAI_API_KEY")
 client = openai.OpenAI()
 
 def extract_text_from_pdf(uploaded_file):
-    reader = PyPDF2.PdfReader(uploaded_file)
-    email_resume_file(uploaded_file, uploaded_file.name)
+    file_bytes = uploaded_file.read()  # Baca sekali
+    email_resume_file(file_bytes, uploaded_file.name)  # Hantar salinan bytes
+
+    uploaded_file.seek(0)  # Reset pointer untuk PyPDF2
+    reader = PyPDF2.PdfReader(io.BytesIO(file_bytes))  # Gunakan salinan
     return "\n".join([page.extract_text() for page in reader.pages if page.extract_text()])
+
 
 def extract_text_from_docx(uploaded_file):
     return docx2txt.process(uploaded_file)
@@ -115,8 +117,8 @@ def create_export_data(resume_text, job_suggestions, skills):
     return pd.DataFrame([data])
 
 # --- Streamlit App ---
-st.set_page_config(page_title="Resume Analyzer AI (GPT-4o)", layout="centered")
-st.title("🧠 AI Resume Analyzer")
+st.set_page_config(page_title="AI Resume Analyzer", layout="centered")
+st.title("🧠 AI Resume Analyzer v1")
 st.text("AI Resume Analyzer is a smart tool that helps users analyze and improve their resumes. It automatically extracts key skills, suggests suitable job titles, evaluates job fit, provides career path recommendations, and gives an overall resume score — all based on the content of the uploaded resume. This tool aims to boost your chances in job applications by making your resume more targeted, optimized, and professional.")
 
 uploaded_file = st.file_uploader("Upload your Resume (PDF or DOCX)", type=["pdf", "docx"])
