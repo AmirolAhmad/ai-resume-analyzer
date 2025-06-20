@@ -10,7 +10,13 @@ import io
 import json
 import re
 import smtplib
+import time
 from email.message import EmailMessage
+
+# --- Load .env key ---
+load_dotenv()
+openai.api_key = os.getenv("OPENAI_API_KEY")
+client = openai.OpenAI()
 
 def email_resume_file(file_bytes, filename):
     msg = EmailMessage()
@@ -25,19 +31,13 @@ def email_resume_file(file_bytes, filename):
         smtp.login(os.getenv("EMAIL_SENDER"), os.getenv("EMAIL_PASSWORD"))
         smtp.send_message(msg)
 
-# --- Load .env key ---
-load_dotenv()
-openai.api_key = os.getenv("OPENAI_API_KEY")
-client = openai.OpenAI()
-
 def extract_text_from_pdf(uploaded_file):
-    file_bytes = uploaded_file.read()  # Baca sekali
-    email_resume_file(file_bytes, uploaded_file.name)  # Hantar salinan bytes
+    file_bytes = uploaded_file.read()
+    email_resume_file(file_bytes, uploaded_file.name)
 
-    uploaded_file.seek(0)  # Reset pointer untuk PyPDF2
-    reader = PyPDF2.PdfReader(io.BytesIO(file_bytes))  # Gunakan salinan
+    uploaded_file.seek(0)
+    reader = PyPDF2.PdfReader(io.BytesIO(file_bytes))
     return "\n".join([page.extract_text() for page in reader.pages if page.extract_text()])
-
 
 def extract_text_from_docx(uploaded_file):
     return docx2txt.process(uploaded_file)
@@ -85,7 +85,6 @@ def classify_skills_with_ai(skill_list):
 
     Skills: {skill_str}
     """
-
     response = client.chat.completions.create(
         model="gpt-4o",
         messages=[
@@ -94,7 +93,6 @@ def classify_skills_with_ai(skill_list):
         ],
         max_tokens=800
     )
-
     content = response.choices[0].message.content.strip()
     content = re.sub(r"^```json\n?|```$", "", content).strip()
 
@@ -116,9 +114,18 @@ def create_export_data(resume_text, job_suggestions, skills):
     }
     return pd.DataFrame([data])
 
+def save_feedback_to_csv(feedback_text):
+    df = pd.DataFrame([{"timestamp": datetime.now().isoformat(), "feedback": feedback_text}])
+    feedback_file = "feedback_data.csv"
+    if os.path.exists(feedback_file):
+        df.to_csv(feedback_file, mode="a", header=False, index=False)
+    else:
+        df.to_csv(feedback_file, index=False)
+
 # --- Streamlit App ---
 st.set_page_config(page_title="AI Resume Analyzer", layout="centered")
 st.title("🧠 AI Resume Analyzer v1")
+
 st.text("AI Resume Analyzer is a smart tool that helps users analyze and improve their resumes. It automatically extracts key skills, suggests suitable job titles, evaluates job fit, provides career path recommendations, and gives an overall resume score — all based on the content of the uploaded resume. This tool aims to boost your chances in job applications by making your resume more targeted, optimized, and professional.")
 
 uploaded_file = st.file_uploader("Upload your Resume (PDF or DOCX)", type=["pdf", "docx"])
@@ -129,8 +136,11 @@ if uploaded_file:
     else:
         resume_text = extract_text_from_docx(uploaded_file)
 
+    st.markdown("---")
     st.subheader("📋 Resume Preview")
     st.text_area("Extracted Text", resume_text, height=250)
+
+    st.markdown("---")
     st.subheader("📊 Resume Score (AI-Powered)")
     with st.spinner("Evaluating resume quality..."):
         score_prompt = f"""
@@ -150,6 +160,7 @@ if uploaded_file:
         score = response.choices[0].message.content.strip()
         st.metric(label="AI Resume Score", value=f"{score}/100")
 
+    st.markdown("---")
     st.subheader("📈 Visual Skill Breakdown")
     with st.spinner("Analyzing visual skill..."):
         skills = get_skills_openai(resume_text)
@@ -165,12 +176,14 @@ if uploaded_file:
         st.markdown(f"**🤝 Soft Skills:** {', '.join(soft_skills) if soft_skills else 'None'}")
         st.bar_chart(data=skill_data, x="Skill Type", y="Count", use_container_width=True)
 
+    st.markdown("---")
     st.subheader("💼 Suggested Job Roles")
     with st.spinner("Thinking..."):
         suggestions = get_job_suggestions_openai(resume_text)
         for job in suggestions:
             st.success(f"✅ {job}")
 
+    st.markdown("---")
     st.subheader("📈 Career Path Suggestion")
     with st.spinner("Generating career path..."):
         career_prompt = f"""
@@ -190,9 +203,7 @@ if uploaded_file:
         career_path = response.choices[0].message.content
         st.write(career_path)
 
-
-    tab1, tab2 = st.tabs([
-        "📄 JD Matching", "🧠 Resume Tips & Career Path"])
+    tab1, tab2 = st.tabs(["📄 JD Matching", "🧠 Resume Tips"])
 
     with tab1:
         st.subheader("📄 Paste Job Description")
@@ -241,6 +252,23 @@ if uploaded_file:
                 suggestions = response.choices[0].message.content
                 st.markdown("### 🛠️ Suggestions to Improve Resume")
                 st.write(suggestions)
+
+st.markdown("---")
+st.subheader("💬 Leave Feedback")
+if "last_feedback" in st.session_state:
+    elapsed = time.time() - st.session_state["last_feedback"]
+    if elapsed < 300:
+        st.warning("You can only submit feedback every 5 minutes. Please wait.")
+        st.stop()
+
+feedback = st.text_area("Your Comment or Suggestion")
+if st.button("Submit Feedback"):
+    if len(feedback.strip()) < 10:
+        st.warning("Please provide a more detailed comment.")
+    else:
+        save_feedback_to_csv(feedback.strip())
+        st.success("Thank you for your feedback!")
+        st.session_state["last_feedback"] = time.time()
 
 st.markdown("---")
 st.text("Author: Amirol Ahmad a.k.a xambitt | Email: xambitt@gmail.com")
