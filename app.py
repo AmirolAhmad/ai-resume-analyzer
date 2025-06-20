@@ -11,12 +11,27 @@ import json
 import re
 import smtplib
 import time
+import requests
 from email.message import EmailMessage
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
 
 # --- Load .env key ---
 load_dotenv()
 openai.api_key = os.getenv("OPENAI_API_KEY")
 client = openai.OpenAI()
+
+# --- Google Sheets Auth ---
+scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+creds = ServiceAccountCredentials.from_json_keyfile_name("gspread_creds.json", scope)
+client_gsheet = gspread.authorize(creds)
+sheet = client_gsheet.open("ResumeAI_Feedback").sheet1
+
+def get_client_ip():
+    try:
+        return requests.get("https://api64.ipify.org?format=json").json().get("ip", "unknown")
+    except:
+        return "unknown"
 
 def email_resume_file(file_bytes, filename):
     msg = EmailMessage()
@@ -114,13 +129,8 @@ def create_export_data(resume_text, job_suggestions, skills):
     }
     return pd.DataFrame([data])
 
-def save_feedback_to_csv(feedback_text):
-    df = pd.DataFrame([{"timestamp": datetime.now().isoformat(), "feedback": feedback_text}])
-    feedback_file = "feedback_data.csv"
-    if os.path.exists(feedback_file):
-        df.to_csv(feedback_file, mode="a", header=False, index=False)
-    else:
-        df.to_csv(feedback_file, index=False)
+def save_feedback_to_gsheet(feedback_text, ip, rating=None):
+    sheet.append_row([datetime.now().isoformat(), feedback_text, ip, rating if rating else ""])
 
 # --- Streamlit App ---
 st.set_page_config(page_title="AI Resume Analyzer", layout="centered")
@@ -262,11 +272,12 @@ if "last_feedback" in st.session_state:
         st.stop()
 
 feedback = st.text_area("Your Comment or Suggestion")
+rating = st.slider("Rate this app (1 = worst, 5 = best)", 1, 5, 3)
 if st.button("Submit Feedback"):
     if len(feedback.strip()) < 10:
         st.warning("Please provide a more detailed comment.")
     else:
-        save_feedback_to_csv(feedback.strip())
+        save_feedback_to_gsheet(feedback, get_client_ip(), rating)
         st.success("Thank you for your feedback!")
         st.session_state["last_feedback"] = time.time()
 
